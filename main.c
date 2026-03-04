@@ -6,23 +6,38 @@
 
 #include "cvulkan.h"
 
+int running = 1;
+
+void handle_input(GLFWwindow *window, int key, int scancode, int action, int mods) {
+	if (key == GLFW_KEY_Q) {
+		running = 0;
+	}
+}
+
 int main() {
+	int width = 1280;
+	int height = 720;
+	assert(glfwInit());
+
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-	glfwInit();
+	GLFWwindow* window = glfwCreateWindow(width, height, "GLFW+Vulkan for software rendering", NULL, NULL);
 
-	GLFWwindow* window = glfwCreateWindow(800, 600, "ui test", NULL, NULL);
-
-	void* image = malloc(4 * 800 * 600);
-	for (int i = 0; i < 800*600; i++) {
-		((uint32_t*)image)[i] = 0xFF00FF00;
-	}
+	void* image = malloc(4 * width * height);
+	assert(image);
 
 	assert(cvk_init(window));
 
-	while (!glfwWindowShouldClose(window)) {
+	glfwSetKeyCallback(window, handle_input);
+
+	while (!glfwWindowShouldClose(window) && running) {
 		glfwPollEvents();
+
+		for (int i = 0; i < width*height; i++) {
+			// ARGB
+			((uint32_t*)image)[i] = 0xFF00FF00;
+		}
 
 		cvk_draw(image);
 	}

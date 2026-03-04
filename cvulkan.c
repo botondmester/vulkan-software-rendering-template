@@ -66,7 +66,7 @@ bool init_instance() {
 	create_info.pApplicationInfo = &app_info;
 	create_info.enabledExtensionCount = glfwExtensionCount;
 	create_info.ppEnabledExtensionNames = glfwExtensions;
-#ifdef NDEBUG
+#ifndef NDEBUG
 	create_info.enabledLayerCount = 0;
 	create_info.ppEnabledLayerNames = NULL;
 #else
@@ -112,10 +112,10 @@ bool check_feature_support(VkPhysicalDevice device) {
 				return false;
 			}
 			break;
-		case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES:
+		/*case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES:
 			VkPhysicalDeviceVulkan14Features* features14 = (VkPhysicalDeviceVulkan14Features*)pNext;
 			pNext = features14->pNext;
-			break;
+			break;*/
 		default:
 			assert(0);
 		}
