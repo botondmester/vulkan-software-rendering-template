@@ -20,7 +20,7 @@ int main() {
 	assert(glfwInit());
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 	GLFWwindow* window = glfwCreateWindow(width, height, "GLFW+Vulkan for software rendering", NULL, NULL);
 
@@ -39,7 +39,7 @@ int main() {
 			((uint32_t*)image)[i] = 0xFF00FF00;
 		}
 
-		cvk_draw(image);
+		cvk_draw(window, image, width, height);
 	}
 
 	cvk_cleanup();
