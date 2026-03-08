@@ -36,6 +36,7 @@ struct VulkanContext {
 	uint32_t swapchain_image_count;
 	VkImage* swapchain_images;
 	VkExtent2D swapchain_extent;
+	bool update_swapchain;
 
 	VkSemaphore* render_finished_semaphores;
 	size_t current_frame;
@@ -43,6 +44,7 @@ struct VulkanContext {
 };
 
 static struct VulkanContext* vk_ctx = NULL;
+static GLFWwindowsizefun previous_resize_callback = NULL;
 
 bool init_instance() {
 	VkApplicationInfo app_info;
@@ -292,6 +294,9 @@ void choose_swapchain_surface_format() {
 }
 
 bool create_swapchain(int width, int height) {
+	
+	vkDeviceWaitIdle(vk_ctx->device);
+
 	VkSurfaceCapabilitiesKHR swapchain_capabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_ctx->physical_device, vk_ctx->surface, &swapchain_capabilities);
 
@@ -299,6 +304,20 @@ bool create_swapchain(int width, int height) {
 
 	if (swapchain_capabilities.minImageCount > 0 && vk_ctx->swapchain_image_count > swapchain_capabilities.maxImageCount) {
 		vk_ctx->swapchain_image_count = swapchain_capabilities.maxImageCount;
+	}
+
+	VkExtent2D desired_extent = {width, height};
+
+	if (desired_extent.width < swapchain_capabilities.minImageExtent.width) {
+		desired_extent.width = swapchain_capabilities.minImageExtent.width;
+	} else if(desired_extent.width > swapchain_capabilities.maxImageExtent.width) {
+		desired_extent.width = swapchain_capabilities.maxImageExtent.width;
+	}
+
+	if (desired_extent.height < swapchain_capabilities.minImageExtent.height) {
+		desired_extent.height = swapchain_capabilities.minImageExtent.height;
+	} else if(desired_extent.height > swapchain_capabilities.maxImageExtent.height) {
+		desired_extent.height = swapchain_capabilities.maxImageExtent.height;
 	}
 
 	VkSwapchainCreateInfoKHR createInfo;
@@ -310,8 +329,7 @@ bool create_swapchain(int width, int height) {
 	createInfo.minImageCount = vk_ctx->swapchain_image_count;
 	createInfo.imageFormat = vk_ctx->swapchain_surface_format.format;
 	createInfo.imageColorSpace = vk_ctx->swapchain_surface_format.colorSpace;
-	createInfo.imageExtent.width = width;
-	createInfo.imageExtent.height = height;
+	createInfo.imageExtent = desired_extent;
 	createInfo.imageArrayLayers = 1;
 	createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -321,10 +339,18 @@ bool create_swapchain(int width, int height) {
 	createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 	createInfo.clipped = VK_TRUE;
-	createInfo.oldSwapchain = VK_NULL_HANDLE;
+	createInfo.oldSwapchain = vk_ctx->swapchain;
 
 	if (vkCreateSwapchainKHR(vk_ctx->device, &createInfo, NULL, &vk_ctx->swapchain) != VK_SUCCESS) {
 		return false;
+	}
+
+	if (createInfo.oldSwapchain) {
+		vkDestroySwapchainKHR(vk_ctx->device, createInfo.oldSwapchain, NULL);
+		if (vk_ctx->swapchain_images) {
+			free(vk_ctx->swapchain_images);
+			vk_ctx->swapchain_images = NULL;
+		}
 	}
 
 	if (vkGetSwapchainImagesKHR(vk_ctx->device, vk_ctx->swapchain, &vk_ctx->swapchain_image_count, NULL) != VK_SUCCESS) {
@@ -342,6 +368,18 @@ bool create_swapchain(int width, int height) {
 	};
 
 	return true;
+}
+
+void destroy_swapchain() {
+	if (vk_ctx->swapchain != VK_NULL_HANDLE) {
+		vkDestroySwapchainKHR(vk_ctx->device, vk_ctx->swapchain, NULL);
+		vk_ctx->swapchain = VK_NULL_HANDLE;
+	}
+
+	if (vk_ctx->swapchain_images) {
+		free(vk_ctx->swapchain_images);
+		vk_ctx->swapchain_images = NULL;
+	}
 }
 
 uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
@@ -432,8 +470,11 @@ void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayou
 		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	} else {
-		assert(0);
+	} else { // TODO: create specific barriers for other transitions if needed
+		barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+		sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		destinationStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 	}
 	vkCmdPipelineBarrier(
 		cmd,
@@ -539,6 +580,14 @@ bool create_buffers() {
 	return true;
 }
 
+void cvk_window_resize_callback(GLFWwindow* window, int width, int height) {
+	if(vk_ctx) vk_ctx->update_swapchain = true;
+
+	if(previous_resize_callback) {
+		previous_resize_callback(window, width, height);
+	}
+}
+
 bool cvk_init(GLFWwindow* window) {
 	vk_ctx = malloc(sizeof(struct VulkanContext));
 
@@ -557,6 +606,8 @@ bool cvk_init(GLFWwindow* window) {
 		cvk_cleanup();
 		return false;
 	}
+
+	previous_resize_callback = glfwSetWindowSizeCallback(window, cvk_window_resize_callback);
 
 	if(!select_physical_device()) {
 		cvk_cleanup();
@@ -623,13 +674,7 @@ void cvk_cleanup() {
 		vk_ctx->frames[i].render_finished_fence = VK_NULL_HANDLE;
 	}
 
-	if (vk_ctx->swapchain) {
-		vkDestroySwapchainKHR(vk_ctx->device, vk_ctx->swapchain, NULL);
-	}
-
-	if (vk_ctx->swapchain_images) {
-		free(vk_ctx->swapchain_images);
-	}
+	destroy_swapchain();
 
 	if(vk_ctx->device) {
 		vkDestroyDevice(vk_ctx->device, NULL);
@@ -647,16 +692,36 @@ void cvk_cleanup() {
 	vk_ctx = NULL;
 }
 
-void cvk_draw(void* image) {
+void cvk_draw(GLFWwindow* window, void* image, size_t width, size_t height) {
+	if (glfwGetWindowAttrib(window, GLFW_ICONIFIED)) return;
+
+	if (vk_ctx->update_swapchain) {
+		vk_ctx->update_swapchain = false;
+		assert(init_swapchain(window));
+		printf("Swapchain recreated with new size %dx%d\n", vk_ctx->swapchain_extent.width, vk_ctx->swapchain_extent.height);
+	}
+
 	FrameData* frame = &vk_ctx->frames[vk_ctx->current_frame%MAX_FRAMES_IN_FLIGHT];
 
 	vkWaitForFences(vk_ctx->device, 1, &frame->render_finished_fence, VK_TRUE, UINT64_MAX);
 	vkResetFences(vk_ctx->device, 1, &frame->render_finished_fence);
 
+	VkExtent3D copyExtent;
+	copyExtent.width = vk_ctx->swapchain_extent.width;
+	copyExtent.height = vk_ctx->swapchain_extent.height;
+	copyExtent.depth = 1;
+
+	if (width < copyExtent.width) {
+		copyExtent.width = width;
+	}
+	if (height < copyExtent.height) {
+		copyExtent.height = height;
+	}
+
 	{
 		void* data;
 		vkMapMemory(vk_ctx->device, frame->staging_buffer.memory, 0, VK_WHOLE_SIZE, 0, &data);
-		memcpy(data, image, vk_ctx->swapchain_extent.width * vk_ctx->swapchain_extent.height * 4);
+		memcpy(data, image, copyExtent.width * copyExtent.height * 4);
 		vkUnmapMemory(vk_ctx->device, frame->staging_buffer.memory);
 	}
 
@@ -675,7 +740,20 @@ void cvk_draw(void* image) {
 
 	vkBeginCommandBuffer(cmd, &cmdBeginInfo);
 
-	transition_image(cmd, vk_ctx->swapchain_images[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	transition_image(cmd, vk_ctx->swapchain_images[imageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+	VkClearColorValue clearValue = { { 0.0f, 0.0f, 0.0f, 1.0f } };
+
+	VkImageSubresourceRange clearRange;
+	memset(&clearRange, 0, sizeof(VkImageSubresourceRange));
+	clearRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	clearRange.baseMipLevel = 0;
+	clearRange.levelCount = VK_REMAINING_MIP_LEVELS;
+	clearRange.baseArrayLayer = 0;
+	clearRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+	vkCmdClearColorImage(cmd, vk_ctx->swapchain_images[imageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+	transition_image(cmd, vk_ctx->swapchain_images[imageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
 	VkBufferImageCopy region;
 	memset(&region, 0, sizeof(VkBufferImageCopy));
@@ -683,9 +761,7 @@ void cvk_draw(void* image) {
 	region.imageSubresource.mipLevel = 0;
 	region.imageSubresource.baseArrayLayer = 0;
 	region.imageSubresource.layerCount = 1;
-	region.imageExtent.width = vk_ctx->swapchain_extent.width;
-	region.imageExtent.height = vk_ctx->swapchain_extent.height;
-	region.imageExtent.depth = 1;
+	region.imageExtent = copyExtent;
 
 	vkCmdCopyBufferToImage(cmd, frame->staging_buffer.buffer, vk_ctx->swapchain_images[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
@@ -739,7 +815,9 @@ void cvk_draw(void* image) {
 	presentInfo.pSwapchains = &vk_ctx->swapchain;
 	presentInfo.pImageIndices = &imageIndex;
 
-	vkQueuePresentKHR(vk_ctx->queue, &presentInfo);
+	VkResult presentResult = vkQueuePresentKHR(vk_ctx->queue, &presentInfo);
+	assert(presentResult == VK_SUCCESS || presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR);
+	if(presentResult == VK_ERROR_OUT_OF_DATE_KHR) vk_ctx->update_swapchain = true;
 
 	vk_ctx->current_frame++;
 }
