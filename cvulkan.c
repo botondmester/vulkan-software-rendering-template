@@ -762,6 +762,8 @@ void cvk_draw(GLFWwindow* window, void* image, size_t width, size_t height) {
 	region.imageSubresource.baseArrayLayer = 0;
 	region.imageSubresource.layerCount = 1;
 	region.imageExtent = copyExtent;
+	region.bufferRowLength = width;
+	region.bufferImageHeight = height;
 
 	vkCmdCopyBufferToImage(cmd, frame->staging_buffer.buffer, vk_ctx->swapchain_images[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
