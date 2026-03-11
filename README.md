@@ -13,6 +13,6 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json ./a.out
 ```
 
 ## Known issues
-- 100% CPU usage on my computer even though VSync should be enabled
-- Resizing can randomly freeze the application
+- vkQueuePresentKHR spins the CPU to 100% usage while waiting for the next VSync'd frame. Need manual sleep
+- Resizing can randomly freeze the application on Cinnamon DE, X11
 - Doesn't run on my swaywm (wayland) setup without the `VK\_DRIVER\_FILES=...` thing
