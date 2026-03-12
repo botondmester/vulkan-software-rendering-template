@@ -1,1 +1,1 @@
-gcc -O3 -Wall main.c cvulkan.c -lglfw -lvulkan
+gcc -O3 -Wall main.c cvulkan.c -lglfw -lvulkan -o main
