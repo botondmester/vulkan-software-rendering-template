@@ -1,10 +1,13 @@
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <assert.h>
 
 #include <GLFW/glfw3.h>
 
 #include "cvulkan.h"
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 int running = 1;
 
@@ -31,7 +34,13 @@ int main() {
 
 	glfwSetKeyCallback(window, handle_input);
 
+	double target_fps = 60.0;
+	double delta_sec = 0.0;
+
 	while (!glfwWindowShouldClose(window) && running) {
+		printf("Delta: %f\n", delta_sec);
+		double last = glfwGetTime();
+
 		glfwPollEvents();
 
 		for (int i = 0; i < width*height; i++) {
@@ -40,6 +49,16 @@ int main() {
 		}
 
 		cvk_draw(window, image, width, height);
+
+		double duration = glfwGetTime() - last;
+		double sleep_sec = MAX(0.0, 1.0 / target_fps - duration);
+		struct timespec req = {0};
+		time_t sec = sleep_sec;
+		req.tv_sec = sec;
+		req.tv_nsec = (sleep_sec - sec) * 1000000000L;
+		nanosleep(&req, &req);
+
+		delta_sec = glfwGetTime() - last;
 	}
 
 	cvk_cleanup();
